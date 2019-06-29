@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{PathBuf, Path};
+use std::ffi::OsString;
 use std::process::Command;
 
 use cursive::traits::*;
@@ -11,7 +12,7 @@ use hashbrown::{HashMap, HashSet};
 #[derive(Debug)]
 struct Item {
     name: String,
-    path: PathBuf,
+    filename: OsString,
 }
 
 #[derive(Debug)]
@@ -34,11 +35,12 @@ fn scan_items(state: &mut AppState, p: impl AsRef<Path>) {
         let entry = entry.expect("error scanning all dir");
         let path = entry.path();
         let cpath = path.canonicalize().unwrap();
+        let filename = entry.file_name();
         state.items.insert(
             cpath,
             Item {
-                name: entry.file_name().to_string_lossy().to_string(),
-                path: path,
+                name: filename.to_string_lossy().to_string(),
+                filename: filename
             }
         );
     }
@@ -158,19 +160,28 @@ fn ui_mark_tagsview(siv: &mut Cursive) {
     siv.set_user_data(state);
 }
 
-fn tag_path_prefix(tag: &Path, item: &Path) -> PathBuf {
+fn tag_target_path(tag: &Path, item: &Path) -> PathBuf {
     // assuming both input paths are canonical
-    let mut tc = tag.components();
-    let mut ic = item.components();
-
-    while tc.next() == ic.next() {}
-
-    let count = tc.count();
+    let mut t = tag.iter();
+    let mut i = item.iter();
 
     let mut p = PathBuf::from("../");
-    for _ in 0..count {
-        p.push("../");
+    loop {
+        let tnext = t.next();
+        let inext = i.next();
+
+        if tnext != inext {
+            for _ in 0..t.count() {
+                p.push("../");
+            }
+            p.push(inext.unwrap());
+            for x in i {
+                p.push(x);
+            }
+            break;
+        }
     }
+
     p
 }
 
@@ -198,10 +209,9 @@ fn toggle_tag(siv: &mut Cursive) {
             tag.items.remove(ip);
         } else {
             let item = state.items.get(ip).unwrap();
-            let mut target = tag_path_prefix(&tp, &ip);
-            target.push(&item.path);
+            let target = tag_target_path(&tp, &ip);
             let mut link = tp.to_path_buf();
-            link.push(&item.name);
+            link.push(&item.filename);
 
             std::os::unix::fs::symlink(&target, &link)
                 .expect("could not create symlink");
