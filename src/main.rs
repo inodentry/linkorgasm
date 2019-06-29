@@ -4,10 +4,42 @@ use std::ffi::OsString;
 use std::process::Command;
 
 use cursive::traits::*;
-use cursive::views::{OnEventView, Dialog, EditView, SelectView, LinearLayout, DummyView, ScrollView};
+use cursive::views::{
+    OnEventView,
+    Dialog,
+    EditView,
+    TextView,
+    SelectView,
+    LinearLayout,
+    DummyView,
+    ScrollView
+};
 use cursive::Cursive;
 
 use hashbrown::{HashMap, HashSet};
+
+static HELP_TEXT: &str = r"
+The main window is split in two panes: items (left) and tags (right).
+Use arrow keys and TAB to navigate.
+
+You can select items using the spacebar and the tags view will update
+to show which tags apply to all currently selected items.
+
+In the tags view, use the spacebar to toggle the status of a tag for
+all currently selected items.
+
+Commands when in the items view:
+space   => select/deselect item
+'e'     => open selected items (you will be asked for command to use)
+
+Commands when in the tags view:
+space   => toggle tag on each selected item
+'+'     => create a new tag
+
+Global commands:
+'h'/'?' => show this help screen
+'q'     => quit
+";
 
 #[derive(Debug)]
 struct Item {
@@ -399,6 +431,20 @@ fn ui_input_dialog(
         })
 }
 
+/// Show help
+fn ui_help(siv: &mut Cursive) {
+    let content = TextView::new(HELP_TEXT)
+        .no_wrap();
+    let content = ScrollView::new(content)
+        .scroll_x(true);
+    siv.add_layer(
+        Dialog::new()
+            .title("HELP")
+            .content(content)
+            .button("Close", |siv| { siv.pop_layer(); })
+    );
+}
+
 fn main() {
     let mut siv = Cursive::default();
 
@@ -409,6 +455,8 @@ fn main() {
         sel: HashSet::default(),
     });
     siv.add_global_callback('q', |siv| siv.quit());
+    siv.add_global_callback('h', |siv| ui_help(siv));
+    siv.add_global_callback('?', |siv| ui_help(siv));
 
     siv.add_layer(
         ui_input_dialog("Items directory:", "itemdir", "all", ui_submit_itemdir)
