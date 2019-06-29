@@ -272,6 +272,23 @@ fn toggle_tag(siv: &mut Cursive) {
         v.selection().unwrap()
     }).unwrap();
     let tag = state.tags.get_mut(tp.as_path()).unwrap();
+
+    // check for mixed state and abort if needed
+    {
+        let mut iter = state.sel.iter();
+        let first = if let Some(x) = iter.next() {
+            tag.items.contains_key(x)
+        } else { false /* actually irrelevant */ };
+        for i in iter {
+            let contains = tag.items.contains_key(i);
+            if (first && !contains) || (!first && contains){
+                // FIXME UGLY
+                siv.set_user_data(state);
+                return;
+            }
+        }
+    }
+
     for ip in state.sel.iter() {
         if let Some(p) = tag.items.get(ip) {
             fs::remove_file(p).expect("could not delete symlink");
