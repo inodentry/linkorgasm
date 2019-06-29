@@ -21,7 +21,7 @@ other app.
 
 The current version is usable and supports all advertised features, but feels
 quite rough and could benefit from various usability improvements. See the
-issue tracker. The code also needs to be cleaned up.
+issue tracker. If you would like to implement anything, I will be very happy :).
 
 Tested on Linux, but should also work on other UNIX-like OSs. Windows not
 supported yet.
