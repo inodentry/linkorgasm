@@ -57,7 +57,9 @@ struct Tag {
 #[derive(Debug)]
 struct AppState {
     /// all items (indexed by canonical path)
-    items: HashMap<PathBuf, Item>,
+    items_all: HashMap<PathBuf, Item>,
+    /// items shown in UI
+    items_vis: HashSet<PathBuf>,
     /// all tags (indexed by canonical path)
     tags: HashMap<PathBuf, Tag>,
     /// root of tags dir
@@ -73,7 +75,7 @@ fn scan_items(state: &mut AppState, p: impl AsRef<Path>) {
         let path = entry.path();
         let cpath = path.canonicalize().unwrap();
         let filename = entry.file_name();
-        state.items.insert(
+        state.items_all.insert(
             cpath,
             Item {
                 name: filename.to_string_lossy().to_string(),
@@ -107,11 +109,18 @@ fn scan_tags(state: &mut AppState, mut parent: Option<&mut Tag>, p: impl AsRef<P
             };
             scan_tags(state, Some(&mut tag), &path);
             state.tags.insert(cpath, tag);
-        } else if state.items.contains_key(&cpath) {
+        } else if state.items_all.contains_key(&cpath) {
             if let Some(ref mut parent) = parent {
                 parent.items.insert(cpath, path);
             }
         }
+    }
+}
+
+fn itemview_filter_reset(siv: &mut Cursive) {
+    let state = siv.user_data::<AppState>().unwrap();
+    for i in state.items_all.keys() {
+        state.items_vis.insert(i.clone());
     }
 }
 
@@ -125,7 +134,8 @@ fn ui_refresh_itemview(siv: &mut Cursive) {
 
     siv.call_on_id("itemview", |v: &mut SelectView<PathBuf>| {
         v.clear();
-        for (p, i) in state.items.iter() {
+        for p in state.items_vis.iter() {
+            let i = &state.items_all[p];
             v.add_item(i.name.clone(), p.clone());
         }
         v.sort_by_label();
@@ -165,7 +175,7 @@ fn ui_mark_itemview(siv: &mut Cursive) {
     siv.call_on_id("itemview", |v: &mut SelectView<PathBuf>| {
         for i in 0..v.len() {
             let (s, p) = v.get_item_mut(i).unwrap();
-            let item = state.items.get(p).unwrap();
+            let item = state.items_all.get(p).unwrap();
 
             *s = format!(
                 "{} {}",
@@ -294,7 +304,7 @@ fn toggle_tag(siv: &mut Cursive) {
             fs::remove_file(p).expect("could not delete symlink");
             tag.items.remove(ip);
         } else {
-            let item = state.items.get(ip).unwrap();
+            let item = state.items_all.get(ip).unwrap();
             let target = tag_target_path(&tp, &ip);
             let mut link = tp.to_path_buf();
             link.push(&item.filename);
@@ -400,6 +410,7 @@ fn ui_build_main(siv: &mut Cursive) {
 
     siv.add_layer(Dialog::around(layout).title("linkorgasm"));
 
+    itemview_filter_reset(siv);
     ui_refresh_itemview(siv);
 }
 
@@ -467,7 +478,8 @@ fn main() {
     let mut siv = Cursive::default();
 
     siv.set_user_data(AppState {
-        items: HashMap::default(),
+        items_all: HashMap::default(),
+        items_vis: HashSet::default(),
         tags: HashMap::default(),
         tags_path: PathBuf::new(),
         sel: HashSet::default(),
