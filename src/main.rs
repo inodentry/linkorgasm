@@ -40,6 +40,8 @@ struct Item {
     name: String,
     /// file name
     filename: OsString,
+    /// tags for this item
+    tags: HashSet<PathBuf>,
 }
 
 #[derive(Debug)]
@@ -80,6 +82,7 @@ fn scan_items(state: &mut AppState, p: impl AsRef<Path>) {
             Item {
                 name: filename.to_string_lossy().to_string(),
                 filename: filename,
+                tags: HashSet::default(),
             },
         );
     }
@@ -109,9 +112,10 @@ fn scan_tags(state: &mut AppState, mut parent: Option<&mut Tag>, p: impl AsRef<P
             };
             scan_tags(state, Some(&mut tag), &path);
             state.tags.insert(cpath, tag);
-        } else if state.items_all.contains_key(&cpath) {
+        } else if let Some(item) = state.items_all.get_mut(&cpath) {
             if let Some(ref mut parent) = parent {
                 parent.items.insert(cpath, path);
+                item.tags.insert(p.canonicalize().unwrap());
             }
         }
     }
@@ -279,7 +283,8 @@ fn toggle_tag(siv: &mut Cursive) {
             v.selection().unwrap()
         })
         .unwrap();
-    let tag = state.tags.get_mut(tp.as_path()).unwrap();
+    let tp = tp.as_path();
+    let tag = state.tags.get_mut(tp).unwrap();
 
     // check for mixed state and abort if needed
     {
@@ -300,17 +305,19 @@ fn toggle_tag(siv: &mut Cursive) {
     }
 
     for ip in state.sel.iter() {
+        let item = state.items_all.get_mut(ip).unwrap();
         if let Some(p) = tag.items.get(ip) {
             fs::remove_file(p).expect("could not delete symlink");
             tag.items.remove(ip);
+            item.tags.remove(tp);
         } else {
-            let item = state.items_all.get(ip).unwrap();
             let target = tag_target_path(&tp, &ip);
             let mut link = tp.to_path_buf();
             link.push(&item.filename);
 
             std::os::unix::fs::symlink(&target, &link).expect("could not create symlink");
             tag.items.insert(ip.to_owned(), link);
+            item.tags.insert(tp.to_owned());
         }
     }
     siv.set_user_data(state);
