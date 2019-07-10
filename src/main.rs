@@ -48,8 +48,6 @@ struct Item {
 struct Tag {
     /// string to display in UI
     name: String,
-    /// path relative to tag dir root
-    path: PathBuf,
     /// set of items tagged with this tag
     /// key is the canonical path of the item
     /// value is a path to the symlink in the tag dir
@@ -107,7 +105,6 @@ fn scan_tags(state: &mut AppState, mut parent: Option<&mut Tag>, p: impl AsRef<P
                     .unwrap()
                     .to_string_lossy()
                     .to_string(),
-                path: path.to_owned(),
                 items: HashMap::default(),
             };
             scan_tags(state, Some(&mut tag), &path);
@@ -374,7 +371,6 @@ fn ui_do_new_tag(siv: &mut Cursive, name: &str) {
                 path.canonicalize().unwrap(),
                 Tag {
                     name: name.to_owned(),
-                    path: path,
                     items: HashMap::default(),
                 },
             );
