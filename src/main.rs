@@ -24,6 +24,8 @@ all currently selected items.
 Commands when in the items view:
 space   => select/deselect item
 'e'     => open selected items (you will be asked for command to use)
+'r'     => reset filters (show all items)
+'0'     => hide items that have tags (filter to show only untagged)
 
 Commands when in the tags view:
 space   => toggle tag on each selected item
@@ -120,8 +122,21 @@ fn scan_tags(state: &mut AppState, mut parent: Option<&mut Tag>, p: impl AsRef<P
 
 fn itemview_filter_reset(siv: &mut Cursive) {
     let state = siv.user_data::<AppState>().unwrap();
+    state.items_vis.clear();
+    state.sel.clear();
     for i in state.items_all.keys() {
         state.items_vis.insert(i.clone());
+    }
+}
+
+fn itemview_filter_untagged(siv: &mut Cursive) {
+    let state = siv.user_data::<AppState>().unwrap();
+    state.items_vis.clear();
+    state.sel.clear();
+    for (p, i) in state.items_all.iter() {
+        if i.tags.is_empty() {
+            state.items_vis.insert(p.clone());
+        }
     }
 }
 
@@ -393,6 +408,14 @@ fn ui_build_main(siv: &mut Cursive) {
             toggle_sel(siv);
             ui_mark_itemview(siv);
             ui_mark_tagsview(siv);
+        })
+        .on_event('r', |siv| {
+            itemview_filter_reset(siv);
+            ui_refresh_itemview(siv);
+        })
+        .on_event('0', |siv| {
+            itemview_filter_untagged(siv);
+            ui_refresh_itemview(siv);
         })
         .on_event('e', ui_build_cmdexec);
     let itemview = ScrollView::new(itemview).scroll_x(true);
