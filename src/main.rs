@@ -70,6 +70,16 @@ struct AppState {
     sel: HashSet<PathBuf>,
 }
 
+fn do_app<F, R>(siv: &mut Cursive, f: F) -> R
+where
+    F: FnOnce(&mut Cursive, &mut AppState) -> R,
+{
+    let mut state = siv.take_user_data().unwrap();
+    let r = f(siv, &mut state);
+    siv.set_user_data(state);
+    r
+}
+
 /// Add files from given directory to items index
 fn scan_items(state: &mut AppState, p: impl AsRef<Path>) {
     for entry in fs::read_dir(p).expect("cannot access all dir") {
@@ -120,8 +130,12 @@ fn scan_tags(state: &mut AppState, mut parent: Option<&mut Tag>, p: impl AsRef<P
     }
 }
 
-fn itemview_filter_reset(siv: &mut Cursive) {
-    let state = siv.user_data::<AppState>().unwrap();
+fn apply_filter(siv: &mut Cursive, state: &mut AppState, filter: impl FnOnce(&mut AppState)) {
+    filter(state);
+    ui_refresh_itemview(siv, state);
+}
+
+fn itemview_filter_reset(state: &mut AppState) {
     state.items_vis.clear();
     state.sel.clear();
     for i in state.items_all.keys() {
@@ -129,8 +143,7 @@ fn itemview_filter_reset(siv: &mut Cursive) {
     }
 }
 
-fn itemview_filter_untagged(siv: &mut Cursive) {
-    let state = siv.user_data::<AppState>().unwrap();
+fn itemview_filter_untagged(state: &mut AppState) {
     state.items_vis.clear();
     state.sel.clear();
     for (p, i) in state.items_all.iter() {
@@ -143,9 +156,7 @@ fn itemview_filter_untagged(siv: &mut Cursive) {
 /// Refresh UI after an update to the items index
 ///
 /// Also refreshes tags view to prevent it being obsolete.
-fn ui_refresh_itemview(siv: &mut Cursive) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let mut state = siv.take_user_data::<AppState>().unwrap();
+fn ui_refresh_itemview(siv: &mut Cursive, state: &mut AppState) {
     state.sel.clear();
 
     siv.call_on_id("itemview", |v: &mut SelectView<PathBuf>| {
@@ -157,17 +168,12 @@ fn ui_refresh_itemview(siv: &mut Cursive) {
         v.sort_by_label();
     });
 
-    siv.set_user_data(state);
-
-    ui_mark_itemview(siv);
-    ui_refresh_tagsview(siv);
+    ui_mark_itemview(siv, state);
+    ui_refresh_tagsview(siv, state);
 }
 
 /// Refresh UI after an update to the tags index
-fn ui_refresh_tagsview(siv: &mut Cursive) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let state = siv.take_user_data::<AppState>().unwrap();
-
+fn ui_refresh_tagsview(siv: &mut Cursive, state: &mut AppState) {
     siv.call_on_id("tagsview", |v: &mut SelectView<PathBuf>| {
         v.clear();
         for (p, t) in state.tags.iter() {
@@ -176,18 +182,13 @@ fn ui_refresh_tagsview(siv: &mut Cursive) {
         v.sort_by_label();
     });
 
-    siv.set_user_data(state);
-
-    ui_mark_tagsview(siv);
+    ui_mark_tagsview(siv, state);
 }
 
 /// Generate/update checkbox states in items view
 ///
 /// Our "checkboxes" are just prefixes to the string displayed.
-fn ui_mark_itemview(siv: &mut Cursive) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let state = siv.take_user_data::<AppState>().unwrap();
-
+fn ui_mark_itemview(siv: &mut Cursive, state: &mut AppState) {
     siv.call_on_id("itemview", |v: &mut SelectView<PathBuf>| {
         for i in 0..v.len() {
             let (s, p) = v.get_item_mut(i).unwrap();
@@ -201,17 +202,12 @@ fn ui_mark_itemview(siv: &mut Cursive) {
             .into();
         }
     });
-
-    siv.set_user_data(state);
 }
 
 /// Generate/update checkbox states in tags view
 ///
 /// Our "checkboxes" are just prefixes to the string displayed.
-fn ui_mark_tagsview(siv: &mut Cursive) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let state = siv.take_user_data::<AppState>().unwrap();
-
+fn ui_mark_tagsview(siv: &mut Cursive, state: &mut AppState) {
     siv.call_on_id("tagsview", |v: &mut SelectView<PathBuf>| {
         for i in 0..v.len() {
             let (s, p) = v.get_item_mut(i).unwrap();
@@ -240,8 +236,6 @@ fn ui_mark_tagsview(siv: &mut Cursive) {
             .into();
         }
     });
-
-    siv.set_user_data(state);
 }
 
 /// Generate target path for a new symlink
@@ -272,13 +266,13 @@ fn tag_target_path(tag: &Path, item: &Path) -> PathBuf {
 }
 
 /// UI callback to select/deselect item
-fn toggle_sel(siv: &mut Cursive) {
+fn toggle_sel(siv: &mut Cursive, state: &mut AppState) {
     let p = siv
         .call_on_id("itemview", |v: &mut SelectView<PathBuf>| {
             v.selection().unwrap()
         })
         .unwrap();
-    let state = siv.user_data::<AppState>().unwrap();
+
     if state.sel.contains(p.as_ref()) {
         state.sel.remove(p.as_ref());
     } else {
@@ -287,9 +281,7 @@ fn toggle_sel(siv: &mut Cursive) {
 }
 
 /// UI callback to tag/untag selected items
-fn toggle_tag(siv: &mut Cursive) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let mut state = siv.take_user_data::<AppState>().unwrap();
+fn toggle_tag(siv: &mut Cursive, state: &mut AppState) {
     let tp = siv
         .call_on_id("tagsview", |v: &mut SelectView<PathBuf>| {
             v.selection().unwrap()
@@ -309,8 +301,6 @@ fn toggle_tag(siv: &mut Cursive) {
         for i in iter {
             let contains = tag.items.contains_key(i);
             if (first && !contains) || (!first && contains) {
-                // FIXME UGLY
-                siv.set_user_data(state);
                 return;
             }
         }
@@ -332,13 +322,10 @@ fn toggle_tag(siv: &mut Cursive) {
             item.tags.insert(tp.to_owned());
         }
     }
-    siv.set_user_data(state);
 }
 
-/// UI callback to open selected files with provided command
-fn ui_cmdexec(siv: &mut Cursive, cmd: &str) {
-    // take user data and reinsert afterwards to work around borrow checker
-    let state = siv.take_user_data::<AppState>().unwrap();
+/// Open selected files with provided command
+fn cmdexec(siv: &mut Cursive, state: &mut AppState, cmd: &str) {
     siv.pop_layer();
     for item in state.sel.iter() {
         let mut cmd = Command::new(cmd);
@@ -353,7 +340,6 @@ fn ui_cmdexec(siv: &mut Cursive, cmd: &str) {
             )
         }
     }
-    siv.set_user_data(state);
 }
 
 /// Display UI Dialog for providing command to open items with
@@ -362,42 +348,38 @@ fn ui_build_cmdexec(siv: &mut Cursive) {
         "Open selection with:",
         "cmd",
         "",
-        ui_cmdexec,
+        |siv, x| do_app(siv, |siv, state| cmdexec(siv, state, x))
     ));
 }
 
-/// UI callback to create new tag with provided name
-fn ui_do_new_tag(siv: &mut Cursive, name: &str) {
+/// Create new tag with provided name
+fn new_tag(siv: &mut Cursive, state: &mut AppState, name: &str) {
     if !name.is_empty() {
         siv.pop_layer();
 
-        {
-            let state = siv.user_data::<AppState>().unwrap();
+        let mut path = state.tags_path.clone();
+        path.push(name);
 
-            let mut path = state.tags_path.clone();
-            path.push(name);
+        fs::DirBuilder::new()
+            .recursive(true)
+            .create(&path)
+            .expect("could not create dir");
 
-            fs::DirBuilder::new()
-                .recursive(true)
-                .create(&path)
-                .expect("could not create dir");
+        state.tags.insert(
+            path.canonicalize().unwrap(),
+            Tag {
+                name: name.to_owned(),
+                items: HashMap::default(),
+            },
+        );
 
-            state.tags.insert(
-                path.canonicalize().unwrap(),
-                Tag {
-                    name: name.to_owned(),
-                    items: HashMap::default(),
-                },
-            );
-        }
-
-        ui_refresh_tagsview(siv);
+        ui_refresh_tagsview(siv, state);
     }
 }
 
 /// Display UI Dialog for providing name for new tag
 fn ui_build_new_tag(siv: &mut Cursive) {
-    siv.add_layer(ui_input_dialog("New tag:", "tagname", "", ui_do_new_tag));
+    siv.add_layer(ui_input_dialog("New tag:", "tagname", "", |siv, x| do_app(siv, |siv, state| new_tag(siv, state, x))));
 }
 
 /// Initialise the main UI
@@ -405,17 +387,21 @@ fn ui_build_main(siv: &mut Cursive) {
     let itemview = SelectView::<PathBuf>::new().with_id("itemview");
     let itemview = OnEventView::new(itemview)
         .on_event(' ', |siv| {
-            toggle_sel(siv);
-            ui_mark_itemview(siv);
-            ui_mark_tagsview(siv);
+            do_app(siv, |siv, state| {
+                toggle_sel(siv, state);
+                ui_mark_itemview(siv, state);
+                ui_mark_tagsview(siv, state);
+            })
         })
         .on_event('r', |siv| {
-            itemview_filter_reset(siv);
-            ui_refresh_itemview(siv);
+            do_app(siv, |siv, state| {
+                apply_filter(siv, state, itemview_filter_reset)
+            })
         })
         .on_event('0', |siv| {
-            itemview_filter_untagged(siv);
-            ui_refresh_itemview(siv);
+            do_app(siv, |siv, state| {
+                apply_filter(siv, state, itemview_filter_untagged)
+            })
         })
         .on_event('e', ui_build_cmdexec);
     let itemview = ScrollView::new(itemview).scroll_x(true);
@@ -423,8 +409,10 @@ fn ui_build_main(siv: &mut Cursive) {
     let tagsview = SelectView::<PathBuf>::new().with_id("tagsview");
     let tagsview = OnEventView::new(tagsview)
         .on_event(' ', |siv| {
-            toggle_tag(siv);
-            ui_mark_tagsview(siv);
+            do_app(siv, |siv, state| {
+                toggle_tag(siv, state);
+                ui_mark_tagsview(siv, state);
+            })
         })
         .on_event('+', ui_build_new_tag);
     let tagsview = ScrollView::new(tagsview);
@@ -436,14 +424,14 @@ fn ui_build_main(siv: &mut Cursive) {
 
     siv.add_layer(Dialog::around(layout).title("linkorgasm"));
 
-    itemview_filter_reset(siv);
-    ui_refresh_itemview(siv);
+    do_app(siv, |siv, state| {
+        apply_filter(siv, state, itemview_filter_reset)
+    });
 }
 
 /// UI callback for items dir path dialog
 fn ui_submit_itemdir(siv: &mut Cursive, p: &str) {
-    let state = siv.user_data().unwrap();
-    scan_items(state, p);
+    do_app(siv, |_, state| scan_items(state, p));
     siv.pop_layer();
     siv.add_layer(ui_input_dialog(
         "Tags directory:",
@@ -455,9 +443,10 @@ fn ui_submit_itemdir(siv: &mut Cursive, p: &str) {
 
 /// UI callback for tags dir path dialog
 fn ui_submit_tagdir(siv: &mut Cursive, p: &str) {
-    let mut state = siv.user_data::<AppState>().unwrap();
-    state.tags_path = PathBuf::from(p);
-    scan_tags(state, None, p);
+    do_app(siv, |_, state| {
+        state.tags_path = PathBuf::from(p);
+        scan_tags(state, None, p);
+    });
     siv.pop_layer();
     ui_build_main(siv);
 }
@@ -510,6 +499,7 @@ fn main() {
         tags_path: PathBuf::new(),
         sel: HashSet::default(),
     });
+
     siv.add_global_callback('q', |siv| siv.quit());
     siv.add_global_callback('h', |siv| ui_help(siv));
     siv.add_global_callback('?', |siv| ui_help(siv));
